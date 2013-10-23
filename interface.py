@@ -17,15 +17,7 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-#import httplib2 as http
-#import json
 import unirest
-
-#try:
-    #from urlparse import urlparse
-#except ImportError:
-    #from urllib.parse import urlparse
-
 from flask import Flask
 from flask import render_template
 app = Flask(__name__)
@@ -37,23 +29,8 @@ class CampBX:
         'Accept': 'application/json',
         'Content-Type': 'application/json; charset=UTF-8'
     }
-    #def _getJSON(self, url):
-        ##response = unirest.post("http://httpbin.org/post", { "Accept": "application/json" }, { "parameter": 23, "foo": "bar" })
-        #target = urlparse(url)
-        #method = 'GET'
-        #body = ''
-        #h = http.Http()
-        #h.add_credentials(self.login, self.password)
-        #response, content = h.request(
-                #target.geturl(),
-                #method,
-                #body,
-                #self.headers)
-        #data = json.loads(content)
-        #return data
-
     def tick(self):
-        response = unirest.post("http://campbx.com/api/xticker.php")
+        response = unirest.post("http://campbx.com/api/xticker.php", self.headers, {})
         return { 'bid': float(response.body["Best Bid"]), 'ask': float(response.body["Best Ask"]) }
     def buy(self, qty, price):
         params = {
@@ -64,8 +41,7 @@ class CampBX:
             'Price': price
         }
         url = "https://CampBX.com/api/tradeenter.php"
-        headers = { "Accept": "application/json" }
-        response = unirest.post(url, headers, params)
+        response = unirest.post(url, self.headers, params)
         if "Error" in response.body:
             raise Exception(response.body["Error"])
         print response.body
