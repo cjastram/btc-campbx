@@ -27,10 +27,12 @@ app = Flask(__name__)
 class Orders(list):
     order_book_filename = "order-book.yaml"
     order_book = []
+    trader = None
 
-    def __init__(self):
-        orders.readOrderBook()
-        filled = orders.mapExchangeOrders(self.getOrders())
+    def __init__(self, trader):
+        self.trader = trader
+        self.readOrderBook()
+        self.mapExchangeOrders()
 
     def readOrderBook(self):
         self.order_book = []
@@ -41,7 +43,8 @@ class Orders(list):
         except IOError:
             print "--> Failed to load order book, starting anew"
 
-    def mapExchangeOrders(self, orders):
+    def mapExchangeOrders(self):
+        orders = self.trader.getOrders()
         recorded = []
         for local in self.order_book:
             bid_exchange_id = local["bid"]["exchange_id"]
@@ -69,8 +72,6 @@ class Orders(list):
         #print recorded
         #print "ACTIVE"
         #print active
-        #print "ALL"
-        #print all
         #print "WORKING"
         #print working
         #print "FILLED"
@@ -120,7 +121,7 @@ class Algorithm:
         self.trader = trader
 
     def run(self):
-        orders = Orders()
+        orders = Orders(self.trader)
     
         ### Clear order pairs
         for local in orders.order_book:
