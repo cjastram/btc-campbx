@@ -2,8 +2,29 @@
 <html>
 <head>
 <title>btc-CampBX Trading Bot</title>
+<style>
+body {
+    font-family: verdana;
+    font-size: smaller;
+}
+td, th {
+    border-bottom: 1px solid gray;
+}
+</style>
 </head>
 <body>
 <p>Current bid: {{bid}} ask: {{ask}}</p>
-</html>
+<h1>Order Book</h1>
+<table border="0" cellpadding="5" cellspacing="0">
+<tr><th></th><th>Price</th><th>Quantity</th><th>Status</th></tr>
+{% for order in order_book %}
+    <tr>
+    <td>{{ order.side }}</td>
+    <td>{{ order.price }}</td>
+    <td>{{ order.quantity }}</td>
+    <td>{{ order.status }}</td>
+    </tr>
+{% endfor %}
+</table>
+</body>
 </html>
