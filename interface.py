@@ -74,12 +74,10 @@ order_book_filename = "order-book.yaml"
 
 class Orders(list):
     trader = None
-    log = None
 
-    def __init__(self, trader, log):
+    def __init__(self, trader):
         global ORDER_BOOK
         self.trader = trader
-        self.log = log
         self.readOrderBook()
         ORDER_BOOK = self
 
@@ -166,7 +164,6 @@ class Orders(list):
 ALLOWANCE = 0.01
 
 class Algorithm:
-    log = None
     trader = None
     floor = 0
     ceiling = 0
@@ -177,10 +174,9 @@ class Algorithm:
     ALLOWANCE = 0.01
     TOLERANCE = 0.02       # % variance in BTC purchase quantities
     
-    def __init__(self, trader, order_book, log):
+    def __init__(self, trader, order_book):
         self.trader = trader
         self.order_book = order_book
-        self.log = log
 
     def run(self):
         orders = self.order_book
@@ -328,7 +324,6 @@ class Algorithm:
             #self.trader.cancel(bid)
 
 class CampBX:
-    log = None
     timestamp = None
     login = "X"
     password = "X"
@@ -336,9 +331,8 @@ class CampBX:
         'Accept': 'application/json',
         'Content-Type': 'application/json; charset=UTF-8'
     }
-    def __init__(self, log):
+    def __init__(self):
         self.timestamp = time.time()
-        self.log = log
     def __wait(self):
         while time.time() < self.timestamp:
             time.sleep(0.1)
@@ -458,67 +452,33 @@ class Parameters:
         d = self._read()
         return d[key]
         
-    #bid = 0
-    #ask = 0
-    #def spread(self):
-        #f = open('parameters.yaml', 'r')
-        #temp = yaml.safe_load(f)
-        #f.close()
-        #return temp["spread"]
-    #def floor(self):
-        #f = open('parameters.yaml', 'r')
-        #temp = yaml.safe_load(f)
-        #f.close()
-        #return float(temp["floor"])
-    #def step(self):
-        #f = open('parameters.yaml', 'r')
-        #temp = yaml.safe_load(f)
-        #f.close()
-        #return float(temp["step"])
-    #def symbol(self):
-        #return "SLV"
-    #def qty(self):
-        #f = open('parameters.yaml', 'r')
-        #temp = yaml.safe_load(f)
-        #f.close()
-        #return int(temp["qty"])
-    #def ceiling(self):
-        #pass
-
-
-LOG_BOOK = Log()
 SETTINGS = Parameters()
-TRADER = CampBX(LOG_BOOK)
+TRADER = CampBX()
 
 @app.route("/")
 def hello():
-    global LOG_BOOK
     global TRADER
 
-    order_book = Orders(TRADER, LOG_BOOK)
+    order_book = Orders(TRADER)
         
-    #tick = trader.tick()
     f = open("templates/index.html")
     d = f.read()
     f.close()
     return d
     #return render_template('index.html', 
         #order_book=order_book)
-        #bid=tick["bid"], ask=tick["ask"])
 
 @app.route("/algo")
 def algo():
-    global LOG_BOOK
     global TRADER
-    order_book = Orders(TRADER, LOG_BOOK)
-    algo = Algorithm(TRADER, order_book, LOG_BOOK)
+    order_book = Orders(TRADER)
+    algo = Algorithm(TRADER, order_book)
     algo.run()
    
     return redirect("/") 
 
 @app.route("/tick")
 def tick():
-    global LOG_BOOK
     global TRADER
     ret = TRADER.tick()
     ret.update(TRADER.balances())

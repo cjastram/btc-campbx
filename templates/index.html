@@ -26,6 +26,7 @@ function TickCtrl($scope, $http)
             $scope.total = ($scope.bid * $scope.btcTotal) + $scope.usdTotal;
         });
     };
+    $scope.refresh();
 }
 function SettingsCtrl($scope, $http)
 {
@@ -37,6 +38,7 @@ function SettingsCtrl($scope, $http)
             $scope.algorithm = result.data;
         });
     };
+    $scope.refresh();
 }
 </script>
 <style>
@@ -55,7 +57,7 @@ td, th {
 <table border>
     <tr>
         <td valign="top">
-            <h1>Exchange Information</h1>
+            <h1>Exchange</h1>
             <div ng-controller="TickCtrl">
                 <button ng-click="refresh();">Refresh!</button>
                 <p>Current bid: {{bid}} ask: {{ask}}</p>
