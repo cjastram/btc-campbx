@@ -24,8 +24,7 @@ import time
 import weakref
 import yaml
 
-from flask import Flask
-from flask import render_template
+from flask import Flask, render_template, redirect, url_for, jsonify
 app = Flask(__name__)
 
 ORDER_BOOK = None
@@ -75,10 +74,12 @@ order_book_filename = "order-book.yaml"
 
 class Orders(list):
     trader = None
+    log = None
 
-    def __init__(self, trader):
+    def __init__(self, trader, log):
         global ORDER_BOOK
         self.trader = trader
+        self.log = log
         self.readOrderBook()
         ORDER_BOOK = self
 
@@ -165,19 +166,21 @@ class Orders(list):
 ALLOWANCE = 0.01
 
 class Algorithm:
+    log = None
     trader = None
     floor = 0
     ceiling = 0
 
     INTERVAL = 11
     TRADING_RANGE = 0.70    # % of ceiling
-    POOL = 380              # USD to play with
+    POOL = 300              # USD to play with
     ALLOWANCE = 0.01
     TOLERANCE = 0.02       # % variance in BTC purchase quantities
     
-    def __init__(self, trader, order_book):
+    def __init__(self, trader, order_book, log):
         self.trader = trader
         self.order_book = order_book
+        self.log = log
 
     def run(self):
         orders = self.order_book
@@ -189,10 +192,10 @@ class Algorithm:
         self.hypothetical(orders)
 
         ### Evaluate filled orders
-        self.exchange(orders)
+        #self.exchange(orders)
 
         ### Place orders
-        self.order(orders)
+        #self.order(orders)
 
         ### Cancel excess orders
         ###self.cleanup(orders)
@@ -200,12 +203,13 @@ class Algorithm:
         ### Adjust existing
         # TODO
 
-        #for order in orders.order_book:
-            #if order.status == "WORKING":
-                #self.trader.cancel(order)
-            #print order
-        orders.cleanup()
-        orders.saveOrderBook()
+        ##for order in orders.order_book:
+            ##if order.status == "WORKING":
+                ##self.trader.cancel(order)
+            ##print order
+        
+        #orders.cleanup()
+        #orders.saveOrderBook()
 
     def hypothetical(self, order_book):
         tick = self.trader.tick()
@@ -241,6 +245,7 @@ class Algorithm:
             bid = bid + self.INTERVAL
 
         balances = self.trader.balances()
+        print balances
         available_fiat = balances["usd-total"]
         if self.POOL < available_fiat: available_fiat = self.POOL
 
@@ -255,16 +260,16 @@ class Algorithm:
 
             # - Cancel orders for too much / too little btc ------- #
             existing = order_book.bidsAtPrice(bid)                  #
-            existing_qty = 0                                        #
-            for order in existing:                                  #
-                existing_qty = existing_qty + order.quantity        #
-            min = qty * (1-self.TOLERANCE)                          #
-            max = qty * (1+self.TOLERANCE)                          #
-            if existing_qty < min or existing_qty > max:            #
-                for order in existing:                              #
-                    if order.status == "WORKING":                   #
-                        self.trader.cancel(order)                   #
-                existing = order_book.bidsAtPrice(bid)              #
+#            existing_qty = 0                                        #
+#            for order in existing:                                  #
+#                existing_qty = existing_qty + order.quantity        #
+#            min = qty * (1-self.TOLERANCE)                          #
+#            max = qty * (1+self.TOLERANCE)                          #
+#            if existing_qty < min or existing_qty > max:            #
+#                for order in existing:                              #
+#                    if order.status == "WORKING":                   #
+#                        self.trader.cancel(order)                   #
+#                existing = order_book.bidsAtPrice(bid)              #
             # ----------------------------------------------------- #
 
             if not len(existing):
@@ -323,6 +328,7 @@ class Algorithm:
             #self.trader.cancel(bid)
 
 class CampBX:
+    log = None
     timestamp = None
     login = "X"
     password = "X"
@@ -330,8 +336,9 @@ class CampBX:
         'Accept': 'application/json',
         'Content-Type': 'application/json; charset=UTF-8'
     }
-    def __init__(self):
+    def __init__(self, log):
         self.timestamp = time.time()
+        self.log = log
     def __wait(self):
         while time.time() < self.timestamp:
             time.sleep(0.1)
@@ -433,18 +440,42 @@ class CampBX:
                  "btc-liquid": response.body["Liquid BTC"],
                  "btc-total":  response.body["Total BTC"] }
 
+class Log:
+    def __init__(self):
+        print "--> Initializing log..."
+
+LOG_BOOK = Log()
+TRADER = CampBX(LOG_BOOK)
+
 @app.route("/")
 def hello():
-    trader = CampBX()
-    order_book = Orders(trader)
+    global LOG_BOOK
+    global TRADER
 
-    algo = Algorithm(trader, order_book)
-    algo.run()
+    order_book = Orders(TRADER, LOG_BOOK)
         
-    tick = trader.tick()
+    #tick = trader.tick()
     return render_template('index.html', 
-        order_book=order_book,
-        bid=tick["bid"], ask=tick["ask"])
+        order_book=order_book)
+        #bid=tick["bid"], ask=tick["ask"])
+
+@app.route("/algo")
+def algo():
+    global LOG_BOOK
+    global TRADER
+    order_book = Orders(TRADER, LOG_BOOK)
+    algo = Algorithm(TRADER, order_book, LOG_BOOK)
+    algo.run()
+   
+    return redirect("/") 
+
+@app.route("/tick")
+def tick():
+    global LOG_BOOK
+    global TRADER
+    ret = TRADER.tick()
+    ret.update(TRADER.balances())
+    return jsonify(ret)
 
 if __name__ == "__main__":
     app.debug = True
