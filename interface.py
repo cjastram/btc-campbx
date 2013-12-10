@@ -444,7 +444,50 @@ class Log:
     def __init__(self):
         print "--> Initializing log..."
 
+class Parameters:
+    _filename = "settings.yaml"
+    def _read(self):
+        f = open(self._filename, 'r')
+        temp = yaml.safe_load(f)
+        f.close()
+        return temp
+    def algorithm(self, key, value=None):
+        d = self._read()
+        return d["algorithm"][key]
+    def group(self, key):
+        d = self._read()
+        return d[key]
+        
+    #bid = 0
+    #ask = 0
+    #def spread(self):
+        #f = open('parameters.yaml', 'r')
+        #temp = yaml.safe_load(f)
+        #f.close()
+        #return temp["spread"]
+    #def floor(self):
+        #f = open('parameters.yaml', 'r')
+        #temp = yaml.safe_load(f)
+        #f.close()
+        #return float(temp["floor"])
+    #def step(self):
+        #f = open('parameters.yaml', 'r')
+        #temp = yaml.safe_load(f)
+        #f.close()
+        #return float(temp["step"])
+    #def symbol(self):
+        #return "SLV"
+    #def qty(self):
+        #f = open('parameters.yaml', 'r')
+        #temp = yaml.safe_load(f)
+        #f.close()
+        #return int(temp["qty"])
+    #def ceiling(self):
+        #pass
+
+
 LOG_BOOK = Log()
+SETTINGS = Parameters()
 TRADER = CampBX(LOG_BOOK)
 
 @app.route("/")
@@ -455,8 +498,12 @@ def hello():
     order_book = Orders(TRADER, LOG_BOOK)
         
     #tick = trader.tick()
-    return render_template('index.html', 
-        order_book=order_book)
+    f = open("templates/index.html")
+    d = f.read()
+    f.close()
+    return d
+    #return render_template('index.html', 
+        #order_book=order_book)
         #bid=tick["bid"], ask=tick["ask"])
 
 @app.route("/algo")
@@ -476,6 +523,11 @@ def tick():
     ret = TRADER.tick()
     ret.update(TRADER.balances())
     return jsonify(ret)
+
+@app.route("/settings/algorithm")
+def settings():
+    global SETTINGS
+    return jsonify(SETTINGS.group("algorithm"))
 
 if __name__ == "__main__":
     app.debug = True

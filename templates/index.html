@@ -26,7 +26,17 @@ function TickCtrl($scope, $http)
             $scope.total = ($scope.bid * $scope.btcTotal) + $scope.usdTotal;
         });
     };
-    
+}
+function SettingsCtrl($scope, $http)
+{
+    $scope.algorithm = {};
+    $scope.refresh = function() 
+    {
+        $http.get('/settings/algorithm').then(function(result) 
+        {
+            $scope.algorithm = result.data;
+        });
+    };
 }
 </script>
 <style>
@@ -42,23 +52,32 @@ td, th {
 <body>
 
 <input type="button" value="Run" onClick="window.location='/algo'"/>
-
 <table border>
     <tr>
         <td valign="top">
             <h1>Exchange Information</h1>
             <div ng-controller="TickCtrl">
                 <button ng-click="refresh();">Refresh!</button>
-                <p>Current bid: {{'{{bid}}'}} ask: {{'{{ask}}'}}</p>
+                <p>Current bid: {{bid}} ask: {{ask}}</p>
                 <table>
                 <tr><th></th><th>Liquid</th><th>Total</th></tr>
-                <tr><th>USD</th><td>{{'{{usdLiquid}}'}}</td><td>{{'{{usdTotal}}'}}</td></tr>
-                <tr><th>BTC</th><td>{{'{{btcLiquid}}'}}</td><td>{{'{{btcTotal}}'}}</td></tr>
+                <tr><th>USD</th><td>{{usdLiquid}}</td><td>{{usdTotal}}</td></tr>
+                <tr><th>BTC</th><td>{{btcLiquid}}</td><td>{{btcTotal}}</td></tr>
                 </table>
-                <p>Total Value: {{'{{total}}'}}</p>
+                <p>Total Value: {{total}}</p>
             </div>
 
             <h1>Settings</h1>
+            <div ng-controller="SettingsCtrl">
+                <button ng-click="refresh();">Refresh!</button>
+                <p><b>Algorithm Parameters</b></p>
+                <table>
+                <tr ng-repeat="(id, item) in algorithm">
+                    <th align="right">{{id}}</th>
+                    <td><input name="algorithm.{{id}}" value="{{item}}" size="3"/></td>
+                </tr>
+                </table>
+            </div>
         </td>
         <td valign="top">
             <h1>Order Book</h1>
@@ -76,5 +95,6 @@ td, th {
         </td>
     </tr>
 </table>
+
 </body>
 </html>
