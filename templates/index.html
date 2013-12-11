@@ -85,14 +85,12 @@ td, th {
             <h1>Order Book</h1>
             <table border="0" cellpadding="5" cellspacing="0">
             <tr><th></th><th>Price</th><th>Quantity</th><th>Status</th></tr>
-            {% for order in order_book %}
-                <tr>
-                <td>{{ order.side }}</td>
-                <td>{{ order.price }}</td>
-                <td>{{ order.quantity }}</td>
-                <td>{{ order.status }}</td>
-                </tr>
-            {% endfor %}
+            <tr ng-repeat="order in order_book">
+                <td>{{order.side}}</td>
+                <td>{{order.price}}</td>
+                <td>{{order.quantity}}</td>
+                <td>{{order.status}}</td>
+            </tr>
             </table>
         </td>
     </tr>
