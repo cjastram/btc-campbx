@@ -1,0 +1,10 @@
+auth:
+    client_id: X
+    api_key: X
+    api_secret: X
+algorithm:
+    interval: 11
+    tradingRange: 0.90
+    pool: 200
+    allowance: 0.001
+    tolerance: 0.001

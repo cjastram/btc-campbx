@@ -17,161 +17,30 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import hashlib
+import hmac
 import inspect
+import json
 import math
 import unirest
 import time
 import weakref
 import yaml
 
+from exchanges.bitstamp import BitStamp
+from utilities.miscellaneous import Log, Settings
+from utilities.accounting import Order, Orders
+
 from flask import Flask, render_template, redirect, url_for, jsonify
 app = Flask(__name__)
 
 ORDER_BOOK = None
-
-class Order(dict):
-    # dict so it pretty-prints and encodes to JSON easily
-    # .attr so we can refer to .price, .side easily
-    # object instead of plain dict so we can restrict types of values
-    _keys = ["side", "price", "quantity", "exchange_id", "exchange_timestamp", "status", "link"]
-    def __init__(self, side=None, price=None, quantity=None, exchange_id=None, exchange_timestamp=None, status=None, link=None):
-        frame = inspect.currentframe()
-        args, _, _, values = inspect.getargvalues(frame)
-        args.pop(0)
-        for key in args:
-            self[key] = values[key]
-
-    def __getitem__(self, key):
-        if key not in self._keys:
-            raise Exception("'" + key + "'" + " is not a valid key")
-        try:
-            return dict.__getitem__(self,key)
-        except KeyError:
-            return None
-
-    def __setitem__(self, key, value):
-        global ORDER_BOOK 
-
-        if key == "side":
-            if not value in ['bid', 'ask']: raise Exception("Side must be bid or ask")
-        if key == "status":
-            if not value in ['FANTASY', 'WORKING', 'FILLED', 'CANCELLED']: raise Exception("Invalid order status %s" % value)
-
-        if key not in self._keys:
-            raise Exception("'" + key + "'" + " is not a valid key")
-        dict.__setitem__(self,key,value)
-      
-        # Save any changes immediately, in case of crash
-        if ORDER_BOOK:
-            ORDER_BOOK.saveOrderBook()
-    
-    def __getattr__(self, key): 
-        return self[key]
-    def __setattr__(self, key, value): 
-        self[key] = value
-
-order_book_filename = "order-book.yaml"
-
-class Orders(list):
-    trader = None
-
-    def __init__(self, trader):
-        global ORDER_BOOK
-        self.trader = trader
-        self.readOrderBook()
-        ORDER_BOOK = self
-
-    def readOrderBook(self):
-        global order_book_filename
-        del self[0:len(self)]
-        try:
-            f = file(order_book_filename, "r")
-            loaded = yaml.load(f)
-            for block in loaded:
-                self.add(block)
-            f.close()
-        except IOError:
-            print "--> Failed to load order book, starting anew"
-
-    def saveOrderBook(self):
-        global order_book_filename
-        f = file(order_book_filename, "w")
-        yaml.dump(self, f)
-        f.close()
-
-    def cleanup(self):
-        remove = []
-        i = 0
-        while i < len(self):
-            if self[i].status == "CANCELLED":
-                remove.append(i)
-
-            if self[i].status == "FILLED":
-                all_filled = True
-                ids = [self[i].exchange_id]
-                linked = self.linked(self[i].exchange_id)
-                if len(linked):
-                    for order in linked:
-                        if order.status == "FILLED":
-                            ids.append(order.exchange_id)
-                        else:
-                            all_filled = False
-                            break
-                    if all_filled:
-                        for j in range(0, len(self)):
-                            if self[j].exchange_id in ids:
-                                remove.append(j)
-            i = i + 1
-        remove.sort()
-        remove.reverse()
-        for r in remove:
-            del(self[r])
-
-    def bidsAtPrice(self, price):
-        global ALLOWANCE
-        bids = []
-        for order in self:
-            if order.side == "bid" and order.status != "CANCELLED":
-                if order.price > (price - ALLOWANCE) and order.price < (price + ALLOWANCE):
-                    bids.append(order)
-        return bids
-    
-    def bidsUnderPrice(self, price):
-        return [order for order in self if order.side == "bid" and order.price < price]
-    
-    def fantasies(self):
-        return [order for order in self if order.status == "FANTASY"]
-    
-    def filledBids(self):
-        return [order for order in self if order.side == "bid" and order.status == "FILLED"]
-    
-    def linked(self, id):
-        return [order for order in self if order.link == id]
-
-    def working(self):
-        return [order for order in self if order.status == "WORKING"]
-
-    def highestBidPrice(self):
-        highest = 0
-        for bid in [order for order in self if order.side == "bid"]:
-            if bid.price > highest: highest = bid.price
-        return highest
-    
-    def add(self, order):
-        self.append(order)
-        self.sort(key=lambda x: x.price)
-
-ALLOWANCE = 0.01
 
 class Algorithm:
     trader = None
     floor = 0
     ceiling = 0
 
-    INTERVAL = 11
-    TRADING_RANGE = 0.70    # % of ceiling
-    POOL = 300              # USD to play with
-    ALLOWANCE = 0.01
     TOLERANCE = 0.02       # % variance in BTC purchase quantities
     
     def __init__(self, trader, order_book):
@@ -188,26 +57,33 @@ class Algorithm:
         self.hypothetical(orders)
 
         ### Evaluate filled orders
-        #self.exchange(orders)
+        self.exchange(orders)
 
         ### Place orders
-        #self.order(orders)
+        self.order(orders)
 
         ### Cancel excess orders
-        ###self.cleanup(orders)
+        self.cleanup(orders)
 
         ### Adjust existing
         # TODO
-
+ 
+        ### This little block of code will cancel all working orders...
+        ### use with care!
         ##for order in orders.order_book:
             ##if order.status == "WORKING":
                 ##self.trader.cancel(order)
             ##print order
         
-        #orders.cleanup()
-        #orders.saveOrderBook()
+        orders.cleanup()
+        orders.saveOrderBook()
 
     def hypothetical(self, order_book):
+        global SETTINGS
+        interval = SETTINGS.algorithm("interval")
+        allowance = SETTINGS.algorithm("allowance")
+        trading_range = SETTINGS.algorithm("tradingRange")
+        pool = SETTINGS.algorithm("pool")
         tick = self.trader.tick()
 
         # Figure out price ceiling, from either tick or highest unpaired bid,
@@ -220,13 +96,13 @@ class Algorithm:
         if ceiling < highest_bid_price: ceiling = highest_bid_price
         self.ceiling = ceiling
 
-        floor = math.floor(ceiling * self.TRADING_RANGE)
-        spread = self.INTERVAL
+        floor = math.floor(ceiling * trading_range)
+        spread = interval
         self.floor = floor
 
         # No continuous variables!  We need to line up
         # the order grid in a predictable way.
-        floor = floor - (floor % self.INTERVAL)
+        floor = floor - (floor % interval)
         
         # -- Cancel bids below floor ----------------- #
         for bid in order_book.bidsUnderPrice(floor):   #
@@ -238,17 +114,16 @@ class Algorithm:
         bids = []
         while bid < ceiling:
             bids.append(bid)
-            bid = bid + self.INTERVAL
+            bid = bid + interval
 
         balances = self.trader.balances()
-        print balances
         available_fiat = balances["usd-total"]
-        if self.POOL < available_fiat: available_fiat = self.POOL
+        if pool < available_fiat: available_fiat = pool
 
         fiat = available_fiat / len(bids)
 
         for bid in bids:
-            qty = fiat / bid
+            qty = round(fiat / bid, 4)
             parameters = {
                 "fiat": fiat,
                 "btc": qty,
@@ -272,18 +147,32 @@ class Algorithm:
                 order = Order(side="bid", price=bid, quantity=qty, status="FANTASY")
                 order_book.add(order)
                 print "--> Added fantasy order at %f" % bid
-        
-        # Cancel bids 
+
+        # Cancel fantasy bids that don't line up with the interval
+        for fantasy_bid in order_book.fantasyBids():
+            remove = True
+            for allowed_bid in bids:
+                if self._tolerance(allowed_bid, fantasy_bid.price):
+                    remove = False
+            if remove:
+                self.trader.cancel(fantasy_bid)
+    
+    def _tolerance(self, a, b):
+        global SETTINGS
+        allowance = SETTINGS.algorithm("allowance")
+        return (a > (b - allowance) and a < (b + allowance))
 
     def exchange(self, order_book):
-        global ALLOWANCE
+        global SETTINGS
+        interval = SETTINGS.algorithm("interval")
+        allowance = SETTINGS.algorithm("allowance")
         exchange_orders = self.trader.orders()
 
         # Discover any orders placed but not recorded, that may 
         # match with fantasy orders (i.e. don't double-bid).
         for remote in exchange_orders:
             for local in order_book.fantasies():
-                if local.price > (remote["price"] - self.ALLOWANCE) and local.price < (remote["price"] + self.ALLOWANCE):
+                if self._tolerance(local.price, remote["price"]):
                     local.exchange_id = remote["id"]
                     local.exchange_timestamp = remote["timestamp"]
                     local.quantity = remote["amount"]
@@ -300,7 +189,7 @@ class Algorithm:
         for bid in order_book.filledBids():
             if not len(order_book.linked(bid.exchange_id)):
                 bid_price = bid.price
-                ask_price = bid_price + self.INTERVAL
+                ask_price = bid_price + interval
                 bid_usd = bid.quantity * bid_price
                 ask_usd = bid.quantity * ask_price
                 ask_qty = bid_usd / ask_price
@@ -319,147 +208,20 @@ class Algorithm:
         for order in order_book.fantasies():
             self.trader.place(order)
 
-    #def cleanup(self, order_book):
+    def cleanup(self, order_book):
+        pass
         #for bid in order_book.bidsUnderPrice(self.floor):
             #self.trader.cancel(bid)
 
-class CampBX:
-    timestamp = None
-    login = "X"
-    password = "X"
-    headers = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json; charset=UTF-8'
-    }
-    def __init__(self):
-        self.timestamp = time.time()
-    def __wait(self):
-        while time.time() < self.timestamp:
-            time.sleep(0.1)
-    def __timestamp(self):
-        self.timestamp = time.time()
-    def cancel(self, order):
-        print "--> Cancelling order"
-        print order
-        if order.status == "FANTASY":
-            order.status = "CANCELLED"
-        else:
-            params = {
-                'user': self.login,
-                'pass': self.password,
-                'Type': "Buy" if order.side == "bid" else "Sell",
-                'OrderID': order.exchange_id
-            }
-            url = "https://CampBX.com/api/tradecancel.php"
-            args = ""
-            for key, value in params.iteritems():
-                if len(args): args = args + "&"
-                args = args + "%s=%s" % (key, value)
-            url = url + "?" + args
-            self.__wait()
-            response = unirest.post(url, headers=self.headers, params={})
-            self.__timestamp()
-            #if "Error" in response.body:
-                #raise Exception("Bitcoin exchange API error: %s" % response.body["Error"])
-            order.status = "CANCELLED"
-    
-    def place(self, order):
-        print "--> Placing %s for %f at %f" % (order.side, order.quantity, order.price)
-        params = {
-            'user': self.login,
-            'pass': self.password,
-            'TradeMode': "QuickBuy" if order.side == "bid" else "QuickSell",
-            'Quantity': order.quantity,
-            'Price': order.price
-        }
-        url = "https://campbx.com/api/tradeenter.php"
-        args = ""
-        for key, value in params.iteritems():
-            if len(args): args = args + "&"
-            args = args + "%s=%s" % (key, value)
-        url = url + "?" + args
-        self.__wait()
-        response = unirest.post(url, headers=self.headers, params={})
-        self.__timestamp()
-        if "Error" in response.body:
-            raise Exception("Bitcoin exchange API error: %s" % response.body["Error"])
-        if not "Success" in response.body:
-            raise Exception("Bitcoin exchange API failed to return order success!")
-        order.exchange_id = response.body["Success"]
-        if order.exchange_id == "0":
-            order.status = "FILLED"
-        else:
-            order.status = "WORKING"
-            for remote in self.orders():
-                if remote["id"] == order.exchange_id:
-                    order.exchange_timestamp = remote["timestamp"]
-
-    def tick(self):
-        self.__wait()
-        response = unirest.post("http://campbx.com/api/xticker.php") #, self.headers, {})
-        self.__timestamp()
-        return { 'bid': float(response.body["Best Bid"]), 'ask': float(response.body["Best Ask"]) }
-
-    def orders(self):
-        url = "https://campbx.com/api/myorders.php?user=%s&pass=%s" % (self.login, self.password)
-        self.__wait()
-        response = unirest.post(url, headers=self.headers, params={})
-        self.__timestamp()
-        if "Error" in response.body:
-            raise Exception("Bitcoin exchange API error: %s" % response.body["Error"])
-        
-        orders = []
-        for order_type, exchange_orders in response.body.iteritems():
-            order_type = order_type.lower()
-            for exchange_order in exchange_orders:
-                if not "Price" in exchange_order: continue
-                orders.append({
-                    "id": exchange_order["Order ID"],
-                    "side": order_type.lower(), 
-                    "price": float(exchange_order["Price"]),
-                    "amount": float(exchange_order["Quantity"]),
-                    "timestamp": exchange_order["Order Entered"],
-                    })
-        return orders
-
-    def balances(self):
-        url = "https://campbx.com/api/myfunds.php?user=%s&pass=%s" % (self.login, self.password)
-        self.__wait()
-        response = unirest.post(url, headers=self.headers, params={})
-        self.__timestamp()
-        if "Error" in response.body:
-            raise Exception("Bitcoin exchange API error: %s" % response.body["Error"])
-        return { "usd-liquid": response.body["Liquid USD"],
-                 "usd-total":  response.body["Total USD"],
-                 "btc-liquid": response.body["Liquid BTC"],
-                 "btc-total":  response.body["Total BTC"] }
-
-class Log:
-    def __init__(self):
-        print "--> Initializing log..."
-
-class Parameters:
-    _filename = "settings.yaml"
-    def _read(self):
-        f = open(self._filename, 'r')
-        temp = yaml.safe_load(f)
-        f.close()
-        return temp
-    def algorithm(self, key, value=None):
-        d = self._read()
-        return d["algorithm"][key]
-    def group(self, key):
-        d = self._read()
-        return d[key]
-        
-SETTINGS = Parameters()
-TRADER = CampBX()
+SETTINGS = Settings()
+TRADER = BitStamp(settings=SETTINGS)
 
 @app.route("/")
 def hello():
+    global SETTINGS
     global TRADER
 
-    order_book = Orders(TRADER)
+    order_book = Orders(TRADER, SETTINGS)
         
     f = open("templates/index.html")
     d = f.read()
@@ -468,13 +230,22 @@ def hello():
     #return render_template('index.html', 
         #order_book=order_book)
 
+@app.route("/orders")
+def orders():
+    global SETTINGS
+    global TRADER
+    order_book = Orders(TRADER, SETTINGS)
+    
+    # not sure why jsonify() does not work here...
+    return json.dumps(order_book) 
+
 @app.route("/algo")
 def algo():
+    global SETTINGS
     global TRADER
-    order_book = Orders(TRADER)
+    order_book = Orders(TRADER, SETTINGS)
     algo = Algorithm(TRADER, order_book)
     algo.run()
-   
     return redirect("/") 
 
 @app.route("/tick")

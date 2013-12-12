@@ -40,6 +40,18 @@ function SettingsCtrl($scope, $http)
     };
     $scope.refresh();
 }
+function OrderBookCtrl($scope, $http)
+{
+    $scope.order_book = {};
+    $scope.refresh = function() 
+    {
+        $http.get('/orders').then(function(result) 
+        {
+            $scope.order_book = result.data;
+        });
+    };
+    $scope.refresh();
+}
 </script>
 <style>
 body {
@@ -83,15 +95,17 @@ td, th {
         </td>
         <td valign="top">
             <h1>Order Book</h1>
-            <table border="0" cellpadding="5" cellspacing="0">
-            <tr><th></th><th>Price</th><th>Quantity</th><th>Status</th></tr>
-            <tr ng-repeat="order in order_book">
-                <td>{{order.side}}</td>
-                <td>{{order.price}}</td>
-                <td>{{order.quantity}}</td>
-                <td>{{order.status}}</td>
-            </tr>
-            </table>
+            <div ng-controller="OrderBookCtrl">
+                <table border="0" cellpadding="5" cellspacing="0">
+                <tr><th></th><th>Price</th><th>Quantity</th><th>Status</th></tr>
+                <tr ng-repeat="order in order_book">
+                    <td>{{order.side}}</td>
+                    <td>{{order.price}}</td>
+                    <td>{{order.quantity}}</td>
+                    <td>{{order.status}}</td>
+                </tr>
+                </table>
+            </div>
         </td>
     </tr>
 </table>
