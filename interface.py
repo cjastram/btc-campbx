@@ -27,7 +27,7 @@ import time
 import weakref
 import yaml
 
-from exchanges.bitstamp import BitStamp
+from exchanges.mtgox import MtGox
 from utilities.miscellaneous import Log, Settings
 from utilities.accounting import Order, Orders
 
@@ -214,7 +214,7 @@ class Algorithm:
             #self.trader.cancel(bid)
 
 SETTINGS = Settings()
-TRADER = BitStamp(settings=SETTINGS)
+TRADER = MtGox(settings=SETTINGS)
 
 @app.route("/")
 def hello():
